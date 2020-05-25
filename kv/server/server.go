@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-
 	"github.com/pingcap-incubator/tinykv/kv/coprocessor"
 	"github.com/pingcap-incubator/tinykv/kv/storage"
 	"github.com/pingcap-incubator/tinykv/kv/storage/raft_storage"
@@ -38,22 +37,75 @@ func NewServer(storage storage.Storage) *Server {
 // Raw API.
 func (server *Server) RawGet(_ context.Context, req *kvrpcpb.RawGetRequest) (*kvrpcpb.RawGetResponse, error) {
 	// Your Code Here (1).
-	return nil, nil
+	ret := kvrpcpb.RawGetResponse{}
+	reader, err := server.storage.Reader(nil)
+	if err != nil {
+		return &ret, nil
+	}
+	dat, err := reader.GetCF(req.Cf, req.Key)
+	if err != nil {
+		ret.NotFound = true
+		return &ret, nil
+	}
+	ret.Value = dat
+	return &ret, nil
 }
 
 func (server *Server) RawPut(_ context.Context, req *kvrpcpb.RawPutRequest) (*kvrpcpb.RawPutResponse, error) {
 	// Your Code Here (1).
+	ret := kvrpcpb.RawPutResponse{}
+	batch := storage.Put{
+		Key:   req.Key,
+		Value: req.Value,
+		Cf:    req.Cf,
+	}
+	err := server.storage.Write(nil, []storage.Modify{{Data: batch}})
+	if err != nil {
+		ret.Error = err.Error()
+		return &ret, nil
+	}
 	return nil, nil
 }
 
 func (server *Server) RawDelete(_ context.Context, req *kvrpcpb.RawDeleteRequest) (*kvrpcpb.RawDeleteResponse, error) {
 	// Your Code Here (1).
+	ret := kvrpcpb.RawDeleteResponse{}
+	batch := storage.Delete{
+		Key: req.Key,
+		Cf:  req.Cf,
+	}
+	err := server.storage.Write(nil, []storage.Modify{{Data: batch}})
+	if err != nil {
+		return &ret, err
+	}
 	return nil, nil
 }
 
 func (server *Server) RawScan(_ context.Context, req *kvrpcpb.RawScanRequest) (*kvrpcpb.RawScanResponse, error) {
 	// Your Code Here (1).
-	return nil, nil
+	ret := kvrpcpb.RawScanResponse{}
+	reader, err := server.storage.Reader(nil)
+	if err != nil {
+		return &ret, err
+	}
+	iter := reader.IterCF(req.Cf)
+	iter.Seek(req.StartKey)
+	kvs := []*kvrpcpb.KvPair{}
+	for {
+		item := iter.Item()
+		val, _ := item.Value()
+		kvs = append(kvs, &kvrpcpb.KvPair{
+			Key:   item.Key(),
+			Value: val,
+		})
+		iter.Next()
+		if !iter.Valid() || len(kvs) == int(req.Limit) {
+			break
+		}
+	}
+	ret.Kvs = kvs
+	iter.Close()
+	return &ret, nil
 }
 
 // Raft commands (tinykv <-> tinykv)
