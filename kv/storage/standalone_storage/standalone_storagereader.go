@@ -12,6 +12,11 @@ type StandAloneStorageReader struct {
 
 func (s *StandAloneStorageReader) GetCF(cf string, key []byte) ([]byte, error) {
 	dat, err := engine_util.GetCF(s.Db, cf, key)
+	if err != nil {
+		if err.Error() == "Key not found" {
+			return nil, err
+		}
+	}
 	return dat, err
 }
 
